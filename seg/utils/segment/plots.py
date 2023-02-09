@@ -96,6 +96,7 @@ def plot_images_and_masks(images, targets, masks, paths=None, fname='images.jpg'
         if len(targets) > 0:
             idx = targets[:, 0] == i
             ti = targets[idx]  # image targets
+            
 
             boxes = xywh2xyxy(ti[:, 2:6]).T
             classes = ti[:, 1].astype('int')
@@ -127,6 +128,15 @@ def plot_images_and_masks(images, targets, masks, paths=None, fname='images.jpg'
                     image_masks = np.repeat(image_masks, nl, axis=0)
                     image_masks = np.where(image_masks == index, 1.0, 0.0)
                 else:
+                    # self-written to avoid the traceback
+                    # check dimension of mask
+                    # print('\n'+ str(masks.ndim) + '\n'+ str(idx.ndim))
+                    if idx.ndim != masks.ndim:
+                        diff = masks.ndim - idx.ndim
+                        idx = np.append(idx,[False]*diff)
+                        # for m in range(diff):
+                        #     idx = np.append(idx, False)
+                        # print(idx)
                     image_masks = masks[idx]
 
                 im = np.asarray(annotator.im).copy()

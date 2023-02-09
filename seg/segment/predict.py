@@ -29,6 +29,9 @@ import os
 import platform
 import sys
 from pathlib import Path
+import numpy as np
+from imantics import Mask
+from scipy import ndimage
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -55,12 +58,13 @@ def run(
         source=ROOT / 'data/images',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.25,  # confidence threshold
-        iou_thres=0.45,  # NMS IOU threshold
+        conf_thres=0.3,  # confidence threshold
+        iou_thres=0.5,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         view_img=False,  # show results
         save_txt=False,  # save results to *.txt
+        save_poly=False, # save polygon results to *_mask.txt
         save_conf=False,  # save confidences in --save-txt labels
         save_crop=False,  # save cropped prediction boxes
         nosave=False,  # do not save images/videos
@@ -88,7 +92,7 @@ def run(
 
     # Directories
     save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    (save_dir / 'labels' if save_txt or save_poly else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
     device = select_device(device)
@@ -164,6 +168,57 @@ def run(
                 annotator.im = scale_masks(im.shape[2:], im_masks, im0.shape)  # scale to original h, w
                 # Mask plotting ----------------------------------------------------------------------------------------
 
+
+                # START WRITING HERE!
+                if save_poly:
+                    # Mask printing
+                    new_masks = masks.cpu().detach().numpy()
+
+                    # gain = min(im0.shape[0] / im.shape[2], im0.shape[1] / im.shape[3])  # gain  = original / resized
+                    result_print = []
+                    for x in range(new_masks.shape[0]):
+                        # convert masks from resized image to original image size
+                        # result = ndimage.zoom(new_masks[x,:,:],gain)
+                        # print(result.shape)
+                        # convert the array of correct scale to polygons x1,y1...
+                        cat = det[x,5].cpu().detach().numpy()
+                        result = Mask(new_masks[x,:,:]).polygons().segmentation
+
+                        # Case found where several polygons of the same category appear as a list in result
+                        # Break list into n x 1 matrix - n: nos. defect, 1 - array of the defect
+                        new_result = np.zeros((len(result),1), dtype=np.ndarray)
+                        
+                        for j in range(len(result)):
+                            new_result[j,0] = np.array(result[j])
+                            len_def = new_result[j,0].shape[0]
+                            
+                            # YOLO style. Normalised xn yn
+                            result_norm = np.zeros(len_def)
+                            for y in range(1,len_def,2):
+                                result_norm[y] = round(float(float(new_result[j,0][y])/im.shape[2]),4)
+                                result_norm[y-1] = round(float(float(new_result[j,0][y-1])/im.shape[3]),4)
+                            result_norm = np.insert(result_norm,0,cat)
+                            result_print.append(result_norm)
+
+                        # result = np.array(result)
+
+                        # # YOLO style. Normalised xn yn
+                        # result_norm = np.zeros(result.shape[1])
+                        # for y in range(1,result.shape[1],2):
+                        #     result_norm[y] = round(float(float(result[0,y])/im.shape[2]),4)
+                        #     result_norm[y-1] = round(float(float(result[0,y-1])/im.shape[3]),4)
+                        # result_norm = np.insert(result_norm,0,cat)
+                        # result_print.append(result_norm)
+                        # result = []
+
+                    with open(txt_path+"_mask.txt", "w") as outfile:
+                        for num, coor in enumerate(result_print):
+                            # outfile.write()
+                            outfile.write(' '.join(str(e) for e in coor))
+                            outfile.write('\n')
+                        # outfile.write(str(result.tolist()))
+                        # outfile.write('\n'+str(result.shape)+str(type(result)))
+
                 # Write results
                 for *xyxy, conf, cls in reversed(det[:, :6]):
                     if save_txt:  # Write to file
@@ -227,12 +282,13 @@ def parse_opt():
     parser.add_argument('--source', type=str, default=ROOT / 'data/images', help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='(optional) dataset.yaml path')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
-    parser.add_argument('--conf-thres', type=float, default=0.25, help='confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.45, help='NMS IoU threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.3, help='confidence threshold')
+    parser.add_argument('--iou-thres', type=float, default=0.5, help='NMS IoU threshold')
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='show results')
     parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
+    parser.add_argument('--save-poly', action='store_true', help='save results to *_mask.txt')
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
     parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
     parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
